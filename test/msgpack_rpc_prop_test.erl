@@ -30,7 +30,7 @@ teardown(_)->
     ok = application:stop(ranch).
 
 generate_id_data()->
-    [true, false, nil,
+    [true, false, null,
      0, 1, 2, 123, 512, 1230, 678908, 16#FFFFFFFFFF,
      -1, -23, -512, -1230, -567898, -16#FFFFFFFFFF,
      -16#80000001,
@@ -38,7 +38,7 @@ generate_id_data()->
      [23, 234, 0.23],
      <<"hogehoge">>, <<"243546rf7g68h798j", 0, 23, 255>>,
      <<"hoasfdafdas][">>,
-     [0,42, <<"sum">>, [1,2]], [1,42, nil, [3]],
+     [0,42, <<"sum">>, [1,2]], [1,42, null, [3]],
      -234, -40000, -16#10000000, -16#100000000,
      42
     ].

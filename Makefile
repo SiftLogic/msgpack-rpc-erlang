@@ -1,4 +1,4 @@
-.PHONY: compile xref eunit clean doc check make deps test
+.PHONY: compile xref eunit clean edoc check make test
 
 all: compile xref
 test: eunit
@@ -9,31 +9,25 @@ ma: all
 mak: all
 make: all
 
-deps:
-	@./rebar get-deps
-	@./rebar check-deps
-
-compile: deps
-	@./rebar compile
+compile: 
+	@./rebar3 compile
 
 xref: compile
-	@./rebar xref
+	@./rebar3 xref
 
 test: eunit
 eunit: compile
-	@./rebar skip_deps=true eunit
+	@./rebar3 eunit
 
 clean:
-	@./rebar clean
+	@./rebar3 clean
 
 doc:
-	@./rebar doc
+	@./rebar3 edoc
 
 check: compile
-#	@echo "you need ./rebar build-plt before make check"
-#	@./rebar build-plt
-	@./rebar check-plt
-	@./rebar dialyze
+#	@echo "you need ./rebar3 build-plt before make check"
+	@./rebar3 dialyzer
 
 crosslang:
 	@echo "do ERL_LIBS=../ before you make crosslang or fail"

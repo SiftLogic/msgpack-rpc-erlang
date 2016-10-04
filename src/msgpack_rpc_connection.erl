@@ -19,7 +19,14 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
--define(SERVER, ?MODULE). 
+-define(SERVER, ?MODULE).
+
+-ifdef(debug).
+-define(LOG(X), io:format("{~p,~p}: ~p~n", [?MODULE,?LINE,X])).
+string_format(Pattern, Values) -> lists:flatten(io_lib:format(Pattern, Values)).
+-else.
+-define(LOG(X), true).
+-endif.
 
 -record(state,
         {
@@ -27,7 +34,8 @@
           transport  :: atom(),
           counter = 0 :: non_neg_integer(),
           session = [] :: [ {non_neg_integer(), none|{result,msgpack:msgpack_term()}|{waiting,term()}} ],
-          buffer = <<>> :: binary()
+          buffer = <<>> :: binary(),
+          module :: atom()
         }).
 
 %%%===================================================================
@@ -57,10 +65,11 @@ init(Argv) ->
            end,
     IP   = proplists:get_value(ipaddr, Argv, localhost),
     Port = proplists:get_value(port,   Argv, 9199),
+    Module = proplists:get_value(module, Argv, undefined),
                                                 %?debugVal(Opts),
     {ok, Socket} = Transport:connect(IP, Port, Opts),
     ok = Transport:controlling_process(Socket, self()),
-    {ok, #state{connection=Socket, transport=Transport}}.
+    {ok, #state{connection=Socket, transport=Transport, module=Module}}.
 
 -spec handle_call(term(), From::term(), #state{}) ->
                          {reply, Reply::term(), #state{}} |
@@ -103,10 +112,7 @@ handle_call(close, _From, State) ->
 handle_call(_Request, _From, State) ->
     {reply, {error, badevent}, State}.
 
--spec handle_cast(term(), #state{}) ->
-                         {noreply, Reply::term(), #state{}} |
-                         {noreply, Reply::term(), #state{}, non_neg_integer()} |
-                         {stop, Reason::term(), #state{}}.
+-spec handle_cast(term(), #state{}) -> {noreply, #state{}}.
 handle_cast({notify, Method, Argv}, State = #state{connection=Socket, transport=Transport}) ->
     
     Binary = msgpack:pack([?MP_TYPE_NOTIFY, Method, Argv]),
@@ -119,12 +125,10 @@ handle_cast(_Msg, State)                                                        
 %% @doc
 %% Handling all non call/cast messages
 -spec handle_info(term(), #state{}) ->
-                         {noreply, Reply::term(), #state{}} |
-                         {noreply, Reply::term(), #state{}, non_neg_integer()} |
-                         {stop, Reason::term(), #state{}}.
+                         {noreply, #state{}} | {stop, Reason::term(), #state{}}.
 
 handle_info({TCP_or_SSL, Socket, Binary},
-            State = #state{transport=Transport,session=Sessions0, buffer=Buf})
+            State = #state{transport=Transport,session=Sessions0, buffer=Buf, module=Module})
 
   when TCP_or_SSL =:= tcp orelse TCP_or_SSL =:= ssl -> % this guard is quickhack; FIXME
     
@@ -140,21 +144,29 @@ handle_info({TCP_or_SSL, Socket, Binary},
             ?debugVal({error, Reason}),
             {noreply, State#state{buffer=NewBuffer}};
         {Term, Remain} ->
-            [?MP_TYPE_RESPONSE, CallID, ResCode, Result] = Term,
-            Retval = case ResCode of nil ->   {ok, Result};
-                         Error -> {error,
-                                   msgpack_rpc_protocol:binary2known_error(Error)}
-                     end,
-            
-            case lists:keytake(CallID, 1, Sessions0) of
+          case Term of
+            %% Handle a response.
+            [?MP_TYPE_RESPONSE, CallID, ResCode, Result] ->
+              ?LOG(string_format("~n CallID: ~p ~n ResCode: ~p ~n Result: ~p", [CallID, ResCode, Result])),
+              Retval = case ResCode of
+                         null -> {ok, Result};
+                         Error -> {error, msgpack_rpc_protocol:binary2known_error(Error)}
+                       end,
+              case lists:keytake(CallID, 1, Sessions0) of
                 false -> {noreply, State};
                 {value, {CallID, none}, Sessions} ->
-                    {noreply, State#state{session=[{CallID, {result, Retval}}|Sessions],
-                                          buffer=Remain}};
+                  {noreply, State#state{session = [{CallID, {result, Retval}} | Sessions],
+                    buffer = Remain}};
                 {value, {CallID, {waiting, From}}, Sessions} ->
-                    gen_server:reply(From, Retval),
-                    {noreply, State#state{session=Sessions, buffer=Remain}}
-            end
+                  gen_server:reply(From, Retval),
+                  {noreply, State#state{session = Sessions, buffer = Remain}}
+              end;
+            %% Handle a notify message from the server.
+            [?MP_TYPE_NOTIFY, Method, Argv] ->
+              ?LOG(string_format("MFA: ~p ~p ~p", [Module, Method, Argv])),
+              spawn_notify_handler(Module, Method, Argv),
+              {noreply, State#state{buffer = Remain}}
+          end
     end;
 
 handle_info({tcp_closed, Socket}, State = #state{connection=Socket}) ->
@@ -184,3 +196,16 @@ terminate(_Reason, _State = #state{connection=Socket, transport=Transport}) ->
 %%--------------------------------------------------------------------
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+%% Internal functions
+spawn_notify_handler(Module, M, Argv)                     ->
+  spawn(
+    fun()->
+      Method = binary_to_existing_atom(M, latin1),
+      try
+        erlang:apply(Module, Method, Argv)
+      catch
+        Class:Throw ->
+          error_logger:error_msg("~p ~p:~p", [?LINE, Class, Throw])
+      end
+    end).

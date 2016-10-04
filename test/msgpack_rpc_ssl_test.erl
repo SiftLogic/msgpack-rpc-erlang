@@ -11,20 +11,20 @@ add(A, B)-> A+B.
     
 
 start_stop_test()->
-    ok = application:start(asn1),
-    ok = application:start(public_key),
-    ok = application:start(ssl),
+    application:start(asn1),
+    application:start(public_key),
+    application:start(ssl),
 
-    ok = application:start(ranch),
+    application:start(ranch),
     
     Opts = [{port, 9200},
-	    {certfile, "../priv/server_cert.pem"},
-	    {keyfile, "../priv/server_key.pem"}],
+	    {certfile, "./priv/server_cert.pem"},
+	    {keyfile, "./priv/server_key.pem"}],
     {ok, _} = msgpack_rpc_server:start(testlistener2, ssl, msgpack_rpc_ssl_test, Opts),
     
     {ok, Pid} = msgpack_rpc_client:connect(ssl, "localhost", 9200,
-					   [{certfile, "../priv/server_cert.pem"},
-					    {keyfile, "../priv/server_key.pem"}]),
+					   [{certfile, "./priv/server_cert.pem"},
+					    {keyfile, "./priv/server_key.pem"}]),
     Reply = msgpack_rpc_client:call(Pid, hello, [<<"hello">>]),
     ?assertEqual({ok, <<"hello">>}, Reply),
 

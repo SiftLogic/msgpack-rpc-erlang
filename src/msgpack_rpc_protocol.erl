@@ -21,7 +21,7 @@
 	  listener :: pid(),
 	  socket :: inet:socket(),
 	  transport :: module(),
-	  handler :: {module(), any()},
+	  handler :: undefined | {module(), any()},
 	  req_keepalive = 1 :: integer(),
 	  max_keepalive :: integer(),
 	  max_line_length :: integer(),
@@ -39,7 +39,7 @@ start_link(ListenerPid, Socket, Transport, Opts) ->
     {ok, Pid}.
 
 %% @private
--spec init(pid(), inet:socket(), module(), any()) -> ok.
+-spec init(pid(), inet:socket(), module(), any()) -> ok | {error, no_module_defined}.
 init(ListenerPid, Socket, Transport, Opts) ->
     MaxKeepalive = proplists:get_value(max_keepalive, Opts, infinity),
     MaxLineLength = proplists:get_value(max_line_length, Opts, 4096),
@@ -52,6 +52,10 @@ init(ListenerPid, Socket, Transport, Opts) ->
 	    ok = ranch:accept_ack(ListenerPid),
     	    ok = Transport:controlling_process(Socket, self()),
 	    % ok = Transport:setopts(Socket, [{active, once}]),
+
+    %% Added this on 9/2016 so that we could keep a list of open connections
+    %% and send an asynchronous message to a client if necessary.
+    msgpack_rpc_connection_mgr:add(Socket, Transport),
 
 	    wait_request(#state{listener=ListenerPid, socket=Socket, transport=Transport,
 				max_keepalive=MaxKeepalive, max_line_length=MaxLineLength,
@@ -93,6 +97,7 @@ wait_request(State=#state{socket=Socket, transport=Transport,
             end
     end.
 
+
 parse_request(State=#state{buffer=Buffer, module=Module}) ->
     case msgpack:unpack_stream(Buffer) of
         {[?MP_TYPE_REQUEST,CallID,M,Argv], Remain} ->
@@ -131,20 +136,20 @@ spawn_request_handler(CallID, Module, M, Argv)->
                     Result = erlang:apply(Module,Method,Argv),
                     %% ?debugVal({Method, Argv}),
                     %% ?debugVal(Result),
-                    Pid ! {reply, msgpack:pack(Prefix ++ [nil, Result])}
+                    Pid ! {reply, msgpack:pack(Prefix ++ [null, Result])}
                 catch
                     error:Reason ->
                         error_logger:error_msg("no such method: ~p / ~p", [Method, Reason]),
-                        ReplyBin = msgpack:pack(Prefix ++ [error2binary(Reason), nil]),
+                        ReplyBin = msgpack:pack(Prefix ++ [error2binary(Reason), null]),
                         Pid ! {reply, ReplyBin};
 
                     Class:Throw ->
                         Error = lists:flatten(io_lib:format("~p:~p", [Class, Throw])),
                         error_logger:error_msg("(~p)~s", [self(), Error]),
-                        case msgpack:pack(Prefix ++ [Error, nil]) of
+                        case msgpack:pack(Prefix ++ [Error, null]) of
                             {error, Reason} ->
                                 ?debugVal(Reason),
-                                Pid ! {reply, ["internal error", nil]};
+                                Pid ! {reply, ["internal error", null]};
                             Binary when is_binary(Binary) ->
                                 Pid ! {reply, Binary}
                         end
