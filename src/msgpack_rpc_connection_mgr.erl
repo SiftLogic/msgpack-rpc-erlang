@@ -10,6 +10,7 @@
 -behaviour(gen_server).
 
 -include("msgpack_rpc.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 %% API
 -export([start_link/0]).
@@ -337,8 +338,13 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 cull_connections(Connections) ->
   lists:filter(
-    fun({Socket, _Transport}) ->
-      case erlang:port_info(Socket) of
+    fun({Socket, Transport}) ->
+      Port = case Transport of
+        ranch_ssl -> {sslsocket, {gen_tcp, SSLSocket,tls_connection, _}, _} = Socket,
+          SSLSocket;
+        ranch_tcp -> Socket
+      end,
+      case erlang:port_info(Port) of
         undefined -> false;
         _ -> true
       end
@@ -352,8 +358,13 @@ cull_connections(Connections) ->
 %%--------------------------------------------------------------------
 get_hosts_connections(IPAddress, AllOpenConnections) ->
   lists:filter(
-    fun({Socket, _Transport}) ->
-      {ok, {Address, _Port}} = inet:peername(Socket),
+    fun({Socket, Transport}) ->
+      Port = case Transport of
+        ranch_ssl -> {sslsocket, {gen_tcp, SSLSocket,tls_connection, _}, _} = Socket,
+          SSLSocket;
+        ranch_tcp -> Socket
+      end,
+      {ok, {Address, _}} = inet:peername(Port),
       case IPAddress of
         Address -> true;
         _ -> false

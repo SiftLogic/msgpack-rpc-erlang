@@ -66,7 +66,13 @@ init(Argv) ->
     IP   = proplists:get_value(ipaddr, Argv, localhost),
     Port = proplists:get_value(port,   Argv, 9199),
     Module = proplists:get_value(module, Argv, undefined),
-                                                %?debugVal(Opts),
+    case Module of
+      undefined ->
+        error_logger:error_msg("~nWarning: No module is defined in msgpack_rpc_client:connect/4:Opts~n"),
+        {error, no_module_defined};
+      _ -> ok
+    end,
+    %?debugVal(Opts),
     {ok, Socket} = Transport:connect(IP, Port, Opts),
     ok = Transport:controlling_process(Socket, self()),
     {ok, #state{connection=Socket, transport=Transport, module=Module}}.
@@ -203,6 +209,11 @@ spawn_notify_handler(Module, M, Argv)                     ->
     fun()->
       Method = binary_to_existing_atom(M, latin1),
       try
+        if
+          Module =:= undefined ->
+            error_logger:error_msg("~nModule is undefined in MFA; call will fail.~n") ;
+          true -> ok
+        end,
         erlang:apply(Module, Method, Argv)
       catch
         Class:Throw ->

@@ -21,10 +21,19 @@ start_stop_test()->
 	    {certfile, "./priv/server_cert.pem"},
 	    {keyfile, "./priv/server_key.pem"}],
     {ok, _} = msgpack_rpc_server:start(testlistener2, ssl, msgpack_rpc_ssl_test, Opts),
-    
+
+    %% Server tests with no connections.
+    ?assertException(throw, {no_active_connections, _},
+        msgpack_rpc_server:notify_one_connection_on_host({127,0,0,1}, hello, [<<"hello">>])),
+    ?assertException(throw, {no_active_connections, _},
+        msgpack_rpc_server:notify_all_connections_on_host({127,0,0,1}, hello, [<<"hello">>])),
+    ?assertException(throw, {no_active_connections, _},
+        msgpack_rpc_server:notify_all_connections(hello, [<<"hello">>])),
+
     {ok, Pid} = msgpack_rpc_client:connect(ssl, "localhost", 9200,
 					   [{certfile, "./priv/server_cert.pem"},
-					    {keyfile, "./priv/server_key.pem"}]),
+					    {keyfile, "./priv/server_key.pem"},
+              {module, msgpack_rpc_ssl_test}]),
     Reply = msgpack_rpc_client:call(Pid, hello, [<<"hello">>]),
     ?assertEqual({ok, <<"hello">>}, Reply),
 
@@ -32,6 +41,15 @@ start_stop_test()->
     ?assertEqual({ok, 35}, R),
 
     ok = msgpack_rpc_client:notify(Pid, hello, [23]),
+
+    %% Server notifications tests with valid connections.
+    [{_, ranch_ssl}] = msgpack_rpc_server:get_connections(),
+    [{_, ranch_ssl}] = msgpack_rpc_server:get_connections({127,0,0,1}),
+    ok = msgpack_rpc_server:notify_one_connection_on_host({127,0,0,1}, hello, [<<"hello">>]),
+    timer:sleep(100),
+    ok = msgpack_rpc_server:notify_all_connections_on_host({127,0,0,1}, hello, [<<"hello">>]),
+    timer:sleep(100),
+    ok = msgpack_rpc_server:notify_all_connections(hello, [<<"hello">>]),
 
     {ok, CallID0} = msgpack_rpc_client:call_async(Pid, add, [-23, 23]),
     ?assertEqual({ok, 0}, msgpack_rpc_client:join(Pid, CallID0)),
