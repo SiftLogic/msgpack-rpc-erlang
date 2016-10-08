@@ -47,7 +47,10 @@ stop(Name) ->
 %%--------------------------------------------------------------------
 -spec notify_one_connection_on_host(term(), term(), term()) -> ok.
 notify_one_connection_on_host(IPAddress, Method, Argv) ->
-  Result = msgpack_rpc_connection_mgr:notify_one_connection_on_host(IPAddress, Method, Argv),
+
+  BinArgv = lists:map(fun(X) -> term_to_binary(X) end, Argv),
+
+  Result = msgpack_rpc_connection_mgr:notify_one_connection_on_host(IPAddress, Method, BinArgv),
   if
     Result =:= no_active_connections ->
       throw({no_active_connections, "There are no active connections to this host."});
@@ -69,7 +72,10 @@ notify_one_connection_on_host(IPAddress, Method, Argv) ->
 %%--------------------------------------------------------------------
 -spec notify_all_connections_on_host(term(), term(), term()) -> ok.
 notify_all_connections_on_host(IPAddress, Method, Argv) ->
-  Result = msgpack_rpc_connection_mgr:notify_all_connections_on_host(IPAddress, Method, Argv),
+
+  BinArgv = lists:map(fun(X) -> term_to_binary(X) end, Argv),
+
+  Result = msgpack_rpc_connection_mgr:notify_all_connections_on_host(IPAddress, Method, BinArgv),
   if
     Result =:= no_active_connections ->
       throw({no_active_connections, "There are no active connections to this host."});
@@ -88,7 +94,10 @@ notify_all_connections_on_host(IPAddress, Method, Argv) ->
 %%--------------------------------------------------------------------
 -spec notify_all_connections(term(), term()) -> ok.
 notify_all_connections(Method, Argv) ->
-  Result = msgpack_rpc_connection_mgr:notify_all_connections(Method, Argv),
+
+  BinArgv = lists:map(fun(X) -> term_to_binary(X) end, Argv),
+
+  Result = msgpack_rpc_connection_mgr:notify_all_connections(Method, BinArgv),
   if
     Result =:= no_active_connections ->
       throw({no_active_connections, "There are no active connections in the system."});

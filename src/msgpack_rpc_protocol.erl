@@ -114,9 +114,10 @@ parse_request(State=#state{buffer=Buffer, module=Module}) ->
             terminate(State)
     end.
 
-spawn_notify_handler(Module, M, Argv)                     ->
+spawn_notify_handler(Module, M, A)                     ->
     spawn(fun()->
                   Method = binary_to_existing_atom(M, latin1),
+                  Argv = lists:map(fun(X) -> binary_to_term(X) end, A),
                   try
                       erlang:apply(Module, Method, Argv)
                   catch
@@ -126,12 +127,13 @@ spawn_notify_handler(Module, M, Argv)                     ->
                   end
           end).
 
-spawn_request_handler(CallID, Module, M, Argv)->
+spawn_request_handler(CallID, Module, M, A)->
     Pid = self(),
     F = fun()->
                 Ref = erlang:monitor(process, Pid),
                 Method = binary_to_existing_atom(M, latin1),
                 Prefix = [?MP_TYPE_RESPONSE, CallID],
+                Argv = lists:map(fun(X) -> binary_to_term(X) end, A),
                 try
                     Result = erlang:apply(Module,Method,Argv),
                     %% ?debugVal({Method, Argv}),

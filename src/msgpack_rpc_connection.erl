@@ -204,9 +204,10 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %% Internal functions
-spawn_notify_handler(Module, M, Argv)                     ->
+spawn_notify_handler(Module, M, A)                     ->
   spawn(
     fun()->
+      Argv = lists:map(fun(X) -> binary_to_term(X) end, A),
       Method = binary_to_existing_atom(M, latin1),
       try
         if
