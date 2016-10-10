@@ -48,20 +48,20 @@ call(Pid, Method, Argv)->
 
 -spec call_async(pid(), method(), argv()) -> {ok, callid()} | {error, any()}.
 call_async(Pid, Method, Argv)->
-
     BinArgv = lists:map(fun(X) -> term_to_binary(X) end, Argv),
-
     BinMethod = atom_to_binary(Method, latin1),
     gen_server:call(Pid, {call_async, BinMethod, BinArgv}).
 
 -spec join(pid(), callid()) -> {ok, msgpack:msgpack_term()} | {error, any()}.
 join(Pid, CallID)->
-    gen_server:call(Pid, {join, CallID}).
+  Result = gen_server:call(Pid, {join, CallID}),
+  case Result of
+    {ok, Bin} -> {ok, binary_to_term(Bin)};
+    _ -> Result
+  end.
 
 -spec notify(pid(), method(), argv()) -> ok. % never fails
 notify(Pid, Method, Argv)->
-
     BinArgv = lists:map(fun(X) -> term_to_binary(X) end, Argv),
-
     BinMethod = atom_to_binary(Method, latin1),
     gen_server:cast(Pid, {notify, BinMethod, BinArgv}).

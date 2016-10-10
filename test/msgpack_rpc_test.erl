@@ -2,10 +2,13 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--export([hello/1, add/2]).
+-export([hello/1, add/2, tuple/1]).
 
 hello(_Argv)->
     <<"hello">>.
+
+tuple(Argv) ->
+    {tuple, Argv, "tuple test", 123, <<"tuple_test">>}.
 
 add(A, B)-> A+B.
     
@@ -24,6 +27,12 @@ start_stop_test()->
 
     %% Client tests.
     {ok, Pid} = msgpack_rpc_client:connect(tcp, "localhost", 9199, [{module, msgpack_rpc_test}]),
+
+    Ref = make_ref(),
+    {ok, Reply0} = msgpack_rpc_client:call(Pid, tuple, [Ref]),
+    ?assertEqual({tuple, Ref, "tuple test", 123, <<"tuple_test">>}, Reply0),
+
+
     Reply = msgpack_rpc_client:call(Pid, hello, [<<"hello">>]),
     ?assertEqual({ok, <<"hello">>}, Reply),
 
@@ -32,7 +41,7 @@ start_stop_test()->
 
     ok = msgpack_rpc_client:notify(Pid, hello, [23]),
 
-    %% Server notifications tests with valid connections.
+    %%   Server notifications tests with valid connections.
     [{_, ranch_tcp}] = msgpack_rpc_server:get_connections(),
     [{_, ranch_tcp}] = msgpack_rpc_server:get_connections({127,0,0,1}),
     ok = msgpack_rpc_server:notify_one_connection_on_host({127,0,0,1}, hello, [<<"hello">>]),

@@ -136,9 +136,9 @@ spawn_request_handler(CallID, Module, M, A)->
                 Argv = lists:map(fun(X) -> binary_to_term(X) end, A),
                 try
                     Result = erlang:apply(Module,Method,Argv),
-                    %% ?debugVal({Method, Argv}),
-                    %% ?debugVal(Result),
-                    Pid ! {reply, msgpack:pack(Prefix ++ [null, Result])}
+%%                     ?debugVal({Method, Argv}),
+%%                     ?debugVal(Result),
+                    Pid ! {reply, msgpack:pack(Prefix ++ [null, term_to_binary(Result)])}
                 catch
                     error:Reason ->
                         error_logger:error_msg("no such method: ~p / ~p", [Method, Reason]),
