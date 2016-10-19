@@ -54,7 +54,6 @@ start_link(Argv) ->
                         ignore | {stop, term()}.
 init(Argv) ->
     Transport = proplists:get_value(transport, Argv, ranch_tcp),
-    
     Opts = case Transport of
                ranch_tcp -> [binary,{packet,raw},{active,once}];
                ranch_ssl ->
@@ -68,13 +67,20 @@ init(Argv) ->
     Module = proplists:get_value(module, Argv, undefined),
     case Module of
       undefined ->
-        error_logger:error_msg("~nWarning: No module is defined in msgpack_rpc_client:connect/4:Opts~n"),
-        {error, no_module_defined};
+        error_logger:info_msg("~nInfo: No module is defined in msgpack_rpc_client:connect/4:Opts~n"),
+        ok;
       _ -> ok
     end,
     %?debugVal(Opts),
-    {ok, Socket} = Transport:connect(IP, Port, Opts),
+
+    Timeout = proplists:get_value(timeout, Argv, undefined),
+    case Timeout of
+      undefined -> {ok, Socket} = Transport:connect(IP, Port, Opts);
+      _ -> {ok, Socket} = Transport:connect(IP, Port, Opts, Timeout)
+    end,
+
     ok = Transport:controlling_process(Socket, self()),
+
     {ok, #state{connection=Socket, transport=Transport, module=Module}}.
 
 -spec handle_call(term(), From::term(), #state{}) ->
