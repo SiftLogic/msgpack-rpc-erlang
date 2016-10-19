@@ -72,15 +72,9 @@ init(Argv) ->
       _ -> ok
     end,
     %?debugVal(Opts),
-
-    Timeout = proplists:get_value(timeout, Argv, undefined),
-    case Timeout of
-      undefined -> {ok, Socket} = Transport:connect(IP, Port, Opts);
-      _ -> {ok, Socket} = Transport:connect(IP, Port, Opts, Timeout)
-    end,
-
+    Timeout = proplists:get_value(timeout, Argv, infinity),
+    {ok, Socket} = Transport:connect(IP, Port, Opts, Timeout),
     ok = Transport:controlling_process(Socket, self()),
-
     {ok, #state{connection=Socket, transport=Transport, module=Module}}.
 
 -spec handle_call(term(), From::term(), #state{}) ->
