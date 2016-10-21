@@ -50,6 +50,8 @@ start_link(Argv) ->
 %%% gen_server callbacks
 %%%===================================================================
 
+%% TODO: add ability to pass verify_peer option. others?
+
 -spec init([term()]) -> {ok, #state{}} | {ok, #state{}, non_neg_integer()} |
                         ignore | {stop, term()}.
 init(Argv) ->
