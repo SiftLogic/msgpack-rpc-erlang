@@ -50,6 +50,8 @@ start_link(Argv) ->
 %%% gen_server callbacks
 %%%===================================================================
 
+%% TODO: add ability to pass verify_peer option. others?
+
 -spec init([term()]) -> {ok, #state{}} | {ok, #state{}, non_neg_integer()} |
                         ignore | {stop, term()}.
 init(Argv) ->
@@ -59,7 +61,8 @@ init(Argv) ->
                ranch_ssl ->
                    CertFile = proplists:get_value(certfile, Argv),
                    KeyFile = proplists:get_value(keyfile, Argv),
-                   [binary, {packet, raw}, {active, once},
+                   Verify = proplists:get_value(verify, Argv, verify_none),
+                   [binary, {packet, raw}, {active, once}, {verify, Verify},
                     {certfile, CertFile}, {keyfile, KeyFile}]
            end,
     IP   = proplists:get_value(ipaddr, Argv, localhost),
