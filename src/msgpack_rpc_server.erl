@@ -8,7 +8,8 @@
 -module(msgpack_rpc_server).
 
 -export([start/4, start/5, stop/1]).
--export([notify_one_connection_on_host/3]).
+-export([notify_one_connection_on_host/4]).
+-export([notify_all_connections_on_host_port/4]).
 -export([notify_all_connections/2]).
 -export([notify_all_connections_on_host/3]).
 -export([get_connections/0, get_connections/1]).
@@ -34,6 +35,29 @@ stop(Name) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Notify all connection on an ip/port.
+%%
+%% IPAddress should be of the form {127,0,0,1}
+%%
+%% @spec notify_all_connections_on_host_port(IPAddress, Method, Arguments) -> ok.
+%%
+%% @end
+%%--------------------------------------------------------------------
+-spec notify_all_connections_on_host_port(term(), term(), term(), term()) -> ok.
+notify_all_connections_on_host_port(IPAddress, Port, Method, Argv) ->
+
+  BinArgv = lists:map(fun(X) -> term_to_binary(X) end, Argv),
+
+  Result = msgpack_rpc_connection_mgr:notify_all_connections_on_host_port(IPAddress, Port, Method, BinArgv),
+  if
+    Result =:= no_active_connections ->
+      throw({no_active_connections, "There are no active connections to this host."});
+    true ->
+      Result
+  end.
+
+%%--------------------------------------------------------------------
+%% @doc
 %% While there may be more than one connection to the server from
 %% the same ip address we may only want to send a notification to one.
 %% If there is more than one connection, there is no guarantee which
@@ -45,12 +69,12 @@ stop(Name) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec notify_one_connection_on_host(term(), term(), term()) -> ok.
-notify_one_connection_on_host(IPAddress, Method, Argv) ->
+-spec notify_one_connection_on_host(term(), term(), term(), term()) -> ok.
+notify_one_connection_on_host(IPAddress, Port, Method, Argv) ->
 
   BinArgv = lists:map(fun(X) -> term_to_binary(X) end, Argv),
 
-  Result = msgpack_rpc_connection_mgr:notify_one_connection_on_host(IPAddress, Method, BinArgv),
+  Result = msgpack_rpc_connection_mgr:notify_one_connection_on_host(IPAddress, Port, Method, BinArgv),
   if
     Result =:= no_active_connections ->
       throw({no_active_connections, "There are no active connections to this host."});

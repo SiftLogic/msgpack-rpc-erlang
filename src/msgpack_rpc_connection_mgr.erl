@@ -25,7 +25,8 @@
 
 -export([
   add/2,
-  notify_one_connection_on_host/3,
+  notify_all_connections_on_host_port/4,
+  notify_one_connection_on_host/4,
   notify_all_connections_on_host/3,
   notify_all_connections/2,
   get_connections/0,
@@ -75,20 +76,38 @@ stop() ->
 
 %%--------------------------------------------------------------------
 %% @doc
-%% While there may be more than one connection to the server from
-%% the same ip address we only want to send a notification to one.
-%% If there is more than one connection, there is no guarantee which
-%% one will get notified.
+%% To notify all connections on a host and port you must have the ip
+%% address and the port.
 %%
 %% IPAddress should be of the form {127,0,0,1}
 %%
-%% @spec notify_one_connection_on_host(IPAddress, Method, Arguments) -> ok.
+%% @spec notify_all_connections_on_host_port(IPAddress, Port, Method, Arguments) -> ok.
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec notify_one_connection_on_host(term(), term(), term()) -> ok.
-notify_one_connection_on_host(IPAddress, Method, Argv) ->
-  Result = gen_server:call(?MODULE, {notify, IPAddress, Method, Argv}),
+-spec notify_all_connections_on_host_port(term(), term(), term(), term()) -> ok.
+notify_all_connections_on_host_port(IPAddress, Port, Method, Argv) ->
+  Result = gen_server:call(?MODULE, {notify_all_ip_port, IPAddress, Port, Method, Argv}),
+  case Result of
+    ok -> ok;
+    {error, no_active_connections} -> no_active_connections;
+    _ -> Result
+  end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% To notify a single connection on a host you must have the ip
+%% address and the port.
+%%
+%% IPAddress should be of the form {127,0,0,1}
+%%
+%% @spec notify_one_connection_on_host(IPAddress, Port, Method, Arguments) -> ok.
+%%
+%% @end
+%%--------------------------------------------------------------------
+-spec notify_one_connection_on_host(term(), term(), term(), term()) -> ok.
+notify_one_connection_on_host(IPAddress, Port, Method, Argv) ->
+  Result = gen_server:call(?MODULE, {notify_one_ip_port, IPAddress, Port, Method, Argv}),
   case Result of
     ok -> ok;
     {error, no_active_connections} -> no_active_connections;
@@ -249,21 +268,34 @@ handle_call({notify_global, Method, Argv}, _From, #state{connections = Connectio
   end;
 
 %% Send an aysnyochronous (one way) call back to a single connection on a client.
-handle_call({notify, IPAddress, Method, Argv}, _From, #state{connections = Connections} = State) ->
-  %% Get all active connections to the Host; assuming there here that we only want to call 1 per host.
+%% This call assumes that there is only one connection from a single host the the port on the server.
+%% If there is more than one connection then this function picks the last one from the list.
+handle_call({notify_one_ip_port, IPAddress, Port, Method, Argv}, _From, #state{connections = Connections} = State) ->
   AllOpenConnections = cull_connections(Connections),
-  HostConnections = get_hosts_connections(IPAddress, AllOpenConnections),
-  if
-    length(HostConnections) > 0 ->
-      %% If there is more than 1 connection then just
-      %% get the last one and execute the RPC.
-      {Socket, Transport} = lists:last(HostConnections),
+  Connections = get_connections_on_ip_and_port(IPAddress, Port, Connections),
+  NumConnections = length(Connections),
+  case NumConnections of
+    0 ->
+      {reply, {error, no_active_connections}, State#state{connections = AllOpenConnections}};
+    _ ->
+      error_logger:info_msg("~nInfo: There are ~p connections on port ~p from IP ~p; expected 1.~n",
+          [NumConnections, Port, IPAddress]),
+      {Socket, Transport} = lists:last(Connections),
       Binary = msgpack:pack([?MP_TYPE_NOTIFY, Method, Argv]),
-      ok=Transport:send(Socket, Binary),
-      {reply, ok, State#state{connections = AllOpenConnections}};
-    true ->
-      {reply, {error, no_active_connections}, State#state{connections = AllOpenConnections}}
-  end.
+      ok = Transport:send(Socket, Binary),
+      {reply, ok, State#state{connections = AllOpenConnections}}
+  end;
+
+%% Send an aysnyochronous (one way) call back to all connections on a specifc port to a specific ip.
+handle_call({notify_all_ip_port, IPAddress, Port, Method, Argv}, _From, #state{connections = Connections} = State) ->
+  AllOpenConnections = cull_connections(Connections),
+  Connections = get_connections_on_ip_and_port(IPAddress, Port, Connections),
+  Binary = msgpack:pack([?MP_TYPE_NOTIFY, Method, Argv]),
+  lists:foreach(
+    fun({Socket, Transport}) ->
+      ok = Transport:send(Socket, Binary)
+    end, Connections),
+  {reply, ok, State#state{connections = AllOpenConnections}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -370,3 +402,34 @@ get_hosts_connections(IPAddress, AllOpenConnections) ->
         _ -> false
       end
     end, AllOpenConnections).
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Returns a list of connections on a single host/ipaddress/port
+%% @end
+%%--------------------------------------------------------------------
+get_connections_on_ip_and_port(IPAddress, Port, Connections) ->
+  get_connections_on_port(
+    get_hosts_connections(IPAddress,
+      cull_connections(Connections)), Port).
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Returns a list of connections on a single port
+%% @end
+%%--------------------------------------------------------------------
+get_connections_on_port(Connections, Port) ->
+  lists:filter(
+    fun({Socket, Transport}) ->
+      S = case Transport of
+            ranch_ssl -> {sslsocket, {gen_tcp, SSLSocket,tls_connection, _}, _} = Socket,
+              SSLSocket;
+            ranch_tcp -> Socket
+          end,
+      case inet:port(S) of
+        {ok, Port} -> true;
+        _ -> false
+      end
+    end, Connections).

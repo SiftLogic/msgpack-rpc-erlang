@@ -19,7 +19,7 @@ start_stop_test()->
 
     %% Server tests with no connections.
     ?assertException(throw, {no_active_connections, _},
-      msgpack_rpc_server:notify_one_connection_on_host({127,0,0,1}, hello, [<<"hello">>])),
+      msgpack_rpc_server:notify_one_connection_on_host({127,0,0,1}, 9199, hello, [<<"hello">>])),
     ?assertException(throw, {no_active_connections, _},
       msgpack_rpc_server:notify_all_connections_on_host({127,0,0,1}, hello, [<<"hello">>])),
     ?assertException(throw, {no_active_connections, _},
@@ -44,7 +44,9 @@ start_stop_test()->
     %%   Server notifications tests with valid connections.
     [{_, ranch_tcp}] = msgpack_rpc_server:get_connections(),
     [{_, ranch_tcp}] = msgpack_rpc_server:get_connections({127,0,0,1}),
-    ok = msgpack_rpc_server:notify_one_connection_on_host({127,0,0,1}, hello, [<<"hello">>]),
+    ok = msgpack_rpc_server:notify_one_connection_on_host({127,0,0,1}, 9199, hello, [<<"hello">>]),
+    timer:sleep(100),
+    ok = msgpack_rpc_server:notify_all_connections_on_host_port({127,0,0,1}, 9199, hello, [<<"hello">>]),
     timer:sleep(100),
     ok = msgpack_rpc_server:notify_all_connections_on_host({127,0,0,1}, hello, [<<"hello">>]),
     timer:sleep(100),
