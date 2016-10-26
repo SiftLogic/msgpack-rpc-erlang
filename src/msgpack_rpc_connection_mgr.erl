@@ -272,15 +272,13 @@ handle_call({notify_global, Method, Argv}, _From, #state{connections = Connectio
 %% If there is more than one connection then this function picks the last one from the list.
 handle_call({notify_one_ip_port, IPAddress, Port, Method, Argv}, _From, #state{connections = Connections} = State) ->
   AllOpenConnections = cull_connections(Connections),
-  Connections = get_connections_on_ip_and_port(IPAddress, Port, Connections),
-  NumConnections = length(Connections),
+  FilteredConnections = get_connections_on_ip_and_port(IPAddress, Port, Connections),
+  NumConnections = length(FilteredConnections),
   case NumConnections of
     0 ->
       {reply, {error, no_active_connections}, State#state{connections = AllOpenConnections}};
     _ ->
-      error_logger:info_msg("~nInfo: There are ~p connections on port ~p from IP ~p; expected 1.~n",
-          [NumConnections, Port, IPAddress]),
-      {Socket, Transport} = lists:last(Connections),
+      {Socket, Transport} = lists:last(FilteredConnections),
       Binary = msgpack:pack([?MP_TYPE_NOTIFY, Method, Argv]),
       ok = Transport:send(Socket, Binary),
       {reply, ok, State#state{connections = AllOpenConnections}}
