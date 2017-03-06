@@ -41,20 +41,11 @@
 -define(SERVER, ?MODULE).
 
 %%%===================================================================
-%%% DEBUGGING UTILS
-%% To turn on debugging, compile with the -Ddebug option to include a
-%% macro named debug. i.e. erlc -Ddebug abspa_gen.erl
-%% or add {d, debug} to erl_opts in rebar.config
+%%% DEBUGGING UTILS: ought to move to common
 %%%===================================================================
--ifdef(bogus).
--define(LOG(X), io:format("{~p,~p}: ~p~n", [?MODULE,?LINE,X])).
-string_format(Pattern, Values) -> lists:flatten(io_lib:format(Pattern, Values)).
--else.
--define(LOG(X), true).
+
 debug( Fmt, Args ) -> error_logger:info_msg( Fmt, Args ).
 debug( Msg ) -> error_logger:info_msg( Msg ).
-
--endif.
 
 -record(state, {connections :: list()}).
 
@@ -72,8 +63,9 @@ dump() ->
 %% @end
 %%--------------------------------------------------------------------
 -spec add(inet:socket(), module()) -> ok.
-add(Socket, Transport) ->
-  gen_server:cast(?MODULE, {add, Socket, Transport}).
+
+add( Socket, Transport ) ->
+  gen_server:cast( ?MODULE, { add, Socket, Transport } ).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -81,8 +73,9 @@ add(Socket, Transport) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec delete(inet:socket(), module()) -> ok.
+
 delete(Socket, Transport) ->
-  gen_server:cast(?MODULE, {delete,Socket, Transport}).
+  gen_server:cast(?MODULE, {delete, Socket, Transport}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -90,6 +83,7 @@ delete(Socket, Transport) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec stop() -> ok.
+
 stop() ->
   gen_server:call(?MODULE, stop).
 
@@ -106,12 +100,7 @@ stop() ->
 %%--------------------------------------------------------------------
 -spec notify_all_connections_on_host_port(term(), term(), term(), term()) -> ok.
 notify_all_connections_on_host_port(IPAddress, Port, Method, Argv) ->
-  Result = gen_server:call(?MODULE, {notify_all_ip_port, IPAddress, Port, Method, Argv}),
-  case Result of
-    ok -> ok;
-    {error, no_active_connections} -> no_active_connections;
-    _ -> Result
-  end.
+    reply( gen_server:call( ?MODULE, { notify_all_ip_port, IPAddress, Port, Method, Argv } ) ).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -127,12 +116,7 @@ notify_all_connections_on_host_port(IPAddress, Port, Method, Argv) ->
 %%--------------------------------------------------------------------
 -spec notify_one_connection_on_host(term(), integer(), atom(), term()) -> ok.
 notify_one_connection_on_host(IPAddress, Port, Method, Argv) ->
-  Result = gen_server:call(?MODULE, {notify_one_ip_port, IPAddress, Port, Method, Argv}),
-  case Result of
-    ok -> ok;
-    {error, no_active_connections} -> no_active_connections;
-    _ -> Result
-  end.
+  reply( gen_server:call( ?MODULE, { notify_one_ip_port, IPAddress, Port, Method, Argv } ) ).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -148,12 +132,7 @@ notify_one_connection_on_host(IPAddress, Port, Method, Argv) ->
 %%--------------------------------------------------------------------
 -spec notify_all_connections_on_host(term(), term(), term()) -> ok.
 notify_all_connections_on_host(IPAddress, Method, Argv) ->
-  Result = gen_server:call(?MODULE, {notify_all, IPAddress, Method, Argv}),
-  case Result of
-    ok -> ok;
-    {error, no_active_connections} -> no_active_connections;
-    _ -> Result
-  end.
+  reply( gen_server:call( ?MODULE, { notify_all, IPAddress, Method, Argv } ) ).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -166,12 +145,11 @@ notify_all_connections_on_host(IPAddress, Method, Argv) ->
 %%--------------------------------------------------------------------
 -spec notify_all_connections(term(), term()) -> ok.
 notify_all_connections(Method, Argv) ->
-  Result = gen_server:call(?MODULE, {notify_global, Method, Argv}),
-  case Result of
-    ok -> ok;
-    {error, no_active_connections} -> no_active_connections;
-    _ -> Result
-  end.
+    reply( gen_server:call( ?MODULE, { notify_global, Method, Argv } ) ).
+
+reply( ok ) -> ok;
+reply( {error, no_active_connections} ) -> no_active_connections;
+reply( Result ) -> Result.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -294,7 +272,7 @@ handle_call({notify_one_ip_port, IPAddress, Port, Method, Argv}, _From, #state{c
   AllOpenConnections = cull_connections(Connections),
 
 %  case get_connections_on_ip_and_port(IPAddress, Port, Connections) of
-  case get_connections_on_ip_only(IPAddress, Port, Connections) of
+  case get_connections_on_ip_only(IPAddress, Connections) of
     [] ->
       {reply, {error, no_active_connections}, State#state{connections = AllOpenConnections}};
     FilteredConnections ->
@@ -335,9 +313,10 @@ handle_call( dump, _From, #state{connections = Connections} = State) ->
 
 %% Add a new connection to the list of open connections.
 handle_cast({add, Socket, Transport}, #state{connections = Connections} = State) ->
-  debug("Adding connection: ~p ~p", [Socket, Transport]),
+  ClientIp = ip_from_socket( Socket ),
+  debug("New ~p connection from ~p", [Transport, ClientIp ] ),
   OpenConnections = cull_connections(Connections),
-  {noreply, State#state{connections = OpenConnections ++ [{Socket, Transport}]}};
+  { noreply, State#state{ connections = OpenConnections ++ [ { Socket, Transport, ClientIp } ] } };
 
 
 
@@ -351,9 +330,14 @@ handle_cast({add, Socket, Transport}, #state{connections = Connections} = State)
 %%--------------------------------------------------------------------
 
 %% Add a new connection to the list of open connections.
+%%  TODO: This really should use ets vs list for scale
+
 handle_cast({delete, Socket, Transport}, #state{connections = Connections} = State) ->
-  debug("Deleting connection: ~p ~p", [Socket, Transport]),
-  {noreply, State#state{connections = lists:delete( {Socket, Transport}, Connections )}}.
+    debug("Lost ~p connection from ~s", [Transport, ip_string( Socket, Transport ) ] ),
+    F = fun ( Socket, Transport, _C ) -> false;
+            ( _S, _T, _C ) -> true
+        end,
+    { noreply, State#state{connections = filter( F, Connections ) } }.
 
 
 
@@ -414,26 +398,21 @@ code_change(_OldVsn, State, _Extra) ->
 %% @end
 %%--------------------------------------------------------------------
 cull_connections(Connections) ->
-  R = filter(
-    fun({Socket, Transport}) ->
-      Port = case Transport of
-        ranch_ssl -> {sslsocket, {gen_tcp, SSLSocket,tls_connection, _}, _} = Socket,
-          SSLSocket;
-        ranch_tcp -> Socket
-      end,
-      case erlang:port_info(Port) of
-        undefined -> false;
-        _ -> true
-      end
-    end, Connections),
+    Kept = filter(
+            fun( { Socket, Transport, ClientIp } ) ->
+                case erlang:port_info( erlang_port( Socket, Transport ) ) of
+                    undefined -> false;
+                    _ -> true
+                end       
+            end, Connections ),
 
 %   report what happened for debug
 
-    case Connections -- R of
-        [] -> R;
+    case Connections -- Kept of
+        [] -> Kept;
         Deleted ->
-            debug("Culled connections ~p", [Deleted]),
-            R
+            debug( "Culled connections ~p", [ Deleted ] ),
+            Kept
     end.
 
 %%--------------------------------------------------------------------
@@ -444,18 +423,13 @@ cull_connections(Connections) ->
 %%--------------------------------------------------------------------
 get_hosts_connections(IPAddress, AllOpenConnections) ->
   filter(
-    fun({Socket, Transport}) ->
-      Port = case Transport of
-        ranch_ssl -> {sslsocket, {gen_tcp, SSLSocket,tls_connection, _}, _} = Socket,
-          SSLSocket;
-        ranch_tcp -> Socket
-      end,
-      {ok, {Address, _}} = inet:peername(Port),
+    fun( { Socket, Transport, ClientIp } ) ->
+      { ok, { Address, _ } } = inet:peername( erlang_port( Socket, Transport ) ),
       case IPAddress of
         Address -> true;
         _ -> false
       end
-    end, AllOpenConnections).
+    end, AllOpenConnections ).
 
 %%--------------------------------------------------------------------
 %% @private
@@ -463,8 +437,8 @@ get_hosts_connections(IPAddress, AllOpenConnections) ->
 %% Returns a list of connections on a single host/ipaddress
 %% @end
 %%--------------------------------------------------------------------
-get_connections_on_ip_only( IP, _Port, Connections ) ->
-    F = fun( { Socket, Transport } ) ->
+get_connections_on_ip_only( IP, Connections ) ->
+    F = fun( { Socket, Transport, ClientIp } ) ->
             case inet:peername( erlang_port( Socket, Transport ) ) of
                 { ok, { IP, _ } } -> true;
                 _ -> false
@@ -479,7 +453,7 @@ get_connections_on_ip_only( IP, _Port, Connections ) ->
 %% @end
 %%--------------------------------------------------------------------
 get_connections_on_ip_and_port( IP, Port, Connections ) ->
-    F = fun( { Socket, Transport } ) ->
+    F = fun( { Socket, Transport, ClientIp } ) ->
             case inet:peername( erlang_port( Socket, Transport ) ) of
                 { ok, { IP, Port } } -> true;
                 _ -> false
@@ -493,6 +467,12 @@ erlang_port( { sslsocket, { gen_tcp, SSLSocket, tls_connection, _ }, _ } = Socke
     SSLSocket;
 
 erlang_port( Socket, Transport=ranch_tcp ) ->
+    Socket.
+
+erlang_port( { sslsocket, { gen_tcp, SSLSocket, tls_connection, _ }, _ } ) ->
+    SSLSocket;
+
+erlang_port( Socket ) ->
     Socket.
 
 
@@ -509,14 +489,29 @@ old_get_connections_on_ip_and_port(IPAddress, Port, Connections) ->
 %%--------------------------------------------------------------------
 get_connections_on_port(Connections, Port) ->
   filter(
-    fun({Socket, Transport}) ->
-      S = case Transport of
-            ranch_ssl -> {sslsocket, {gen_tcp, SSLSocket,tls_connection, _}, _} = Socket,
-              SSLSocket;
-            ranch_tcp -> Socket
-          end,
-      case inet:port(S) of
+    fun({Socket, Transport, ClientIp}) ->
+      case inet:port( erlang_port( Socket, Transport ) ) of
         {ok, Port} -> true;
         _ -> false
       end
     end, Connections).
+
+%%--------------------------------------------------------------------
+%% @private
+%% @doc
+%% Returns the IP address for given socket, in string form
+%% @end
+%%--------------------------------------------------------------------
+
+ip_from_socket( Socket ) -> inet:peername( erlang_port( Socket ) ).
+port_from_socket( Socket ) -> inet:port( erlang_port( Socket ) ).
+
+ip_string( Socket, Transport ) ->
+    case ip_from_socket( Socket ) of
+        { ok, { Address, Port } } ->
+            inet:ntoa( Address );
+        { ok, returned_non_ip_address } ->
+            io_lib:format( "Bad socket ~p: returned_non_ip_address", [ Socket ] );
+        { error, Reason } ->
+            io_lib:format( "Bad socket ~p: ~p", [ Socket, Reason ] )
+    end.
