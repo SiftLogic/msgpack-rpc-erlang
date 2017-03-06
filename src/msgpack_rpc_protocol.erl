@@ -175,6 +175,7 @@ spawn_request_handler(CallID, Module, M, A) ->
 
 -spec terminate(#state{}) -> ok.
 terminate(#state{socket = Socket, transport = Transport}) ->
+  msgpack_rpc_connection_mgr:delete(Socket, Transport),
   Transport:close(Socket).
 
 -spec error2binary(atom()) -> binary().
