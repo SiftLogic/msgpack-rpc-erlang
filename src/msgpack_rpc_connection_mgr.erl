@@ -247,7 +247,7 @@ handle_call({notify_all, IPAddress, Method, Argv}, _From, #state{connections = C
   if
     length(HostConnections) > 0 ->
       Binary = msgpack:pack([?MP_TYPE_NOTIFY, Method, Argv]),
-      lists:map(fun({Socket, Transport}) -> Transport:send(Socket, Binary) end, HostConnections),
+      lists:map(fun({Socket, Transport,_ClientIp}) -> Transport:send(Socket, Binary) end, HostConnections),
       {reply, ok, State#state{connections = AllOpenConnections}};
     true ->
       {reply, {error, no_active_connections}, State#state{connections = AllOpenConnections}}
@@ -259,7 +259,7 @@ handle_call({notify_global, Method, Argv}, _From, #state{connections = Connectio
   if
     length(AllOpenConnections) > 0 ->
       Binary = msgpack:pack([?MP_TYPE_NOTIFY, Method, Argv]),
-      lists:map(fun({Socket, Transport}) -> Transport:send(Socket, Binary) end, AllOpenConnections),
+      lists:map(fun({Socket, Transport,_ClientIp}) -> Transport:send(Socket, Binary) end, AllOpenConnections),
       {reply, ok, State#state{connections = AllOpenConnections}};
     true ->
       {reply, {error, no_active_connections}, State#state{connections = AllOpenConnections}}
@@ -276,7 +276,7 @@ handle_call({notify_one_ip_port, IPAddress, Port, Method, Argv}, _From, #state{c
     [] ->
       {reply, {error, no_active_connections}, State#state{connections = AllOpenConnections}};
     FilteredConnections ->
-      {Socket, Transport} = lists:last(FilteredConnections),
+      {Socket, Transport, _ClientIp} = lists:last(FilteredConnections),
       Binary = msgpack:pack([?MP_TYPE_NOTIFY, Method, Argv]),
       ok = Transport:send(Socket, Binary),
       {reply, ok, State#state{connections = AllOpenConnections}}
@@ -288,7 +288,7 @@ handle_call({notify_all_ip_port, IPAddress, Port, Method, Argv}, _From, #state{c
   Connections = get_connections_on_ip_and_port(IPAddress, Port, Connections),
   Binary = msgpack:pack([?MP_TYPE_NOTIFY, Method, Argv]),
   lists:foreach(
-    fun({Socket, Transport}) ->
+    fun({Socket, Transport, _ClientIp }) ->
       ok = Transport:send(Socket, Binary)
     end, Connections),
   {reply, ok, State#state{connections = AllOpenConnections}};
@@ -313,8 +313,8 @@ handle_call( dump, _From, #state{connections = Connections} = State) ->
 
 %% Add a new connection to the list of open connections.
 handle_cast({add, Socket, Transport}, #state{connections = Connections} = State) ->
-  ClientIp = ip_from_socket( Socket ),
-  debug("New ~p connection from ~p", [Transport, ClientIp ] ),
+  { ok, { ClientIp, Port } }  = ip_from_socket( Socket ),
+  debug("New ~p connection from ~p:~b", [Transport, ClientIp, Port ] ),
   OpenConnections = cull_connections(Connections),
   { noreply, State#state{ connections = OpenConnections ++ [ { Socket, Transport, ClientIp } ] } };
 
