@@ -333,13 +333,19 @@ handle_cast({add, Socket, Transport}, #state{connections = Connections} = State)
 %%  TODO: This really should use ets vs list for scale
 
 handle_cast({delete, Socket, Transport}, #state{connections = Connections} = State) ->
-    debug("Lost ~p connection from ~s", [Transport, ip_string( Socket, Transport ) ] ),
-    F = fun ( Socket, Transport, _C ) -> false;
-            ( _S, _T, _C ) -> true
-        end,
-    { noreply, State#state{connections = filter( F, Connections ) } }.
+    debug("Lost ~p connection from ~s", [ Transport, ip_string( Socket, Transport ) ] ),
+    debug("Connections are: ~p", [ Connections ] ),
+
+    Kept = delete( Socket, Transport, Connections ),
+    debug( "Kept ~p", [ Kept ] ),
+    { noreply, State#state{ connections = Kept } }.
 
 
+delete( Socket, Transport, [] ) -> [];
+delete( Socket, Transport, [ { Socket, Transport, _Ip } | T ] ) ->
+    delete( Socket, Transport, T );
+delete( Socket, Transport, [ { Sock, Trans, Ip } | T ] ) ->
+    [ { Sock, Trans, Ip } | delete( Socket, Transport, T ) ].
 
 
 
@@ -424,9 +430,8 @@ cull_connections(Connections) ->
 get_hosts_connections(IPAddress, AllOpenConnections) ->
   filter(
     fun( { Socket, Transport, ClientIp } ) ->
-      { ok, { Address, _ } } = inet:peername( erlang_port( Socket, Transport ) ),
-      case IPAddress of
-        Address -> true;
+      case inet:peername( erlang_port( Socket, Transport ) ) of
+        { ok, { IPAddress, _ } } -> true;
         _ -> false
       end
     end, AllOpenConnections ).

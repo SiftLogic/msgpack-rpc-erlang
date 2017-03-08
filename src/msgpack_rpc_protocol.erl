@@ -129,32 +129,33 @@ parse_request(State = #state{buffer = Buffer, module = Module}) ->
 
 spawn_notify_handler(Module, M, A) ->
   spawn(fun() ->
-    Method = binary_to_existing_atom(M, latin1),
     Argv = lists:map(fun(X) -> binary_to_term(X) end, A),
     try
+      Method = binary_to_existing_atom(M, latin1),
       erlang:apply(Module, Method, Argv)
     catch
       Class:Throw ->
-        ?debugVal({Method, Throw}),
+        ?debugVal({M, Throw}),
         error_logger:error_msg("~p ~p:~p", [?LINE, Class, Throw])
     end
-        end).
+    end).
 
 spawn_request_handler(CallID, Module, M, A) ->
   Pid = self(),
   F = fun() ->
     Ref = erlang:monitor(process, Pid),
-    Method = binary_to_existing_atom(M, latin1),
     Prefix = [?MP_TYPE_RESPONSE, CallID],
     Argv = lists:map(fun(X) -> binary_to_term(X) end, A),
-    ?LOG(string_format("Module: ~p Method: ~p Args: ~p", [Module, Method, Argv])),
+
     try
+      Method = binary_to_existing_atom(M, latin1),
+      ?LOG(string_format("Module: ~p Method: ~p Args: ~p", [Module, Method, Argv])),
       Result = erlang:apply(Module, Method, Argv),
 %%      ?debugVal(Result),
       Pid ! {reply, msgpack:pack(Prefix ++ [null, term_to_binary(Result)])}
     catch
       error:Reason ->
-        error_logger:error_msg("no such method: ~p / ~p", [Method, Reason]),
+        error_logger:error_msg("no such method: ~p / ~p", [M, Reason]),
         ReplyBin = msgpack:pack(Prefix ++ [error2binary(Reason), null]),
         Pid ! {reply, ReplyBin};
 
@@ -172,6 +173,12 @@ spawn_request_handler(CallID, Module, M, A) ->
     erlang:demonitor(Ref)
       end,
   spawn(F).
+
+is_exported( Method, Module ) when is_atom( Method ), is_atom( Module ) ->
+    Bin = fun( Atom ) -> list_to_binary( atom_to_list( Atom ) ) end,
+
+    Exports = [ Bin( F ) || { F, _Arity } <- Module:module_info( exports ) ],
+    lists:member( Bin( Method ), Exports ).
 
 -spec terminate(#state{}) -> ok.
 terminate(#state{socket = Socket, transport = Transport}) ->
