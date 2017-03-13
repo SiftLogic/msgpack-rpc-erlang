@@ -334,20 +334,9 @@ handle_cast({add, Socket, Transport}, #state{connections = Connections} = State)
 
 handle_cast({delete, Socket, Transport}, #state{connections = Connections} = State) ->
     debug("Lost ~p connection from ~s", [ Transport, ip_string( Socket, Transport ) ] ),
-    debug("Connections are: ~p", [ Connections ] ),
 
-    Kept = delete( Socket, Transport, Connections ),
-    debug( "Kept ~p", [ Kept ] ),
-    { noreply, State#state{ connections = Kept } }.
-
-
-delete( Socket, Transport, [] ) -> [];
-delete( Socket, Transport, [ { Socket, Transport, _Ip } | T ] ) ->
-    delete( Socket, Transport, T );
-delete( Socket, Transport, [ { Sock, Trans, Ip } | T ] ) ->
-    [ { Sock, Trans, Ip } | delete( Socket, Transport, T ) ].
-
-
+    F = fun ( { S, T, _C } ) -> { S, T } =/= { Socket, Transport } end,
+    { noreply, State#state{ connections = lists:filter( F, Connections ) } }.
 
 %%--------------------------------------------------------------------
 %% @private
