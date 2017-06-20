@@ -20,17 +20,22 @@ start(Name, Transport, Module, Opts)->
     start(Name, 4, Transport, Module, Opts).
 
 start(Name, NumProc, ssl, Module, Opts)->
-    msgpack_rpc_connection_mgr:start_link(),
+%%
+%%  disable: handled by controller's sup tree now. ugh
+%%  msgpack_rpc_connection_mgr:start_link(),
     ranch:start_listener(Name, NumProc, ranch_ssl, Opts,
                          msgpack_rpc_protocol, [{module, Module}]);
 start(Name, NumProc, tcp, Module, Opts)->
-    msgpack_rpc_connection_mgr:start_link(),
+%%
+%%  disable: handled by controller's sup tree now. ugh
+%%  msgpack_rpc_connection_mgr:start_link(),
     ranch:start_listener(Name, NumProc, ranch_tcp, Opts,
                          msgpack_rpc_protocol, [{module, Module}]).
 
 -spec stop(atom()) -> ok.
 stop(Name) ->
-    msgpack_rpc_connection_mgr:stop(),
+%%  disable: handled by controller's sup tree now. ugh
+%   msgpack_rpc_connection_mgr:stop(),
     ranch:stop_listener(Name).
 
 %%--------------------------------------------------------------------

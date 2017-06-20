@@ -312,13 +312,23 @@ handle_call( dump, _From, #state{connections = Connections} = State) ->
   {noreply, NewState :: #state{}}).
 
 %% Add a new connection to the list of open connections.
-handle_cast({add, Socket, Transport}, #state{connections = Connections} = State) ->
+handle_cast({old_add, Socket, Transport}, #state{connections = Connections} = State) ->
   { ok, { ClientIp, Port } }  = ip_from_socket( Socket ),
   debug("New ~p connection from ~p:~b", [Transport, ClientIp, Port ] ),
   OpenConnections = cull_connections(Connections),
   { noreply, State#state{ connections = OpenConnections ++ [ { Socket, Transport, ClientIp } ] } };
 
-
+handle_cast({add, Socket, Transport}, #state{connections = Connections} = State) ->
+    try ip_from_socket( Socket ) of
+        { ok, { ClientIp, Port } } ->
+            debug("New ~p connection from ~p:~b", [Transport, ClientIp, Port ] ),
+            OpenConnections = cull_connections(Connections),
+            { noreply, State#state{ connections = OpenConnections ++ [ { Socket, Transport, ClientIp } ] } }
+    catch
+        Type:Error ->
+            debug( "Add connection from ~p failed: ~p:p", [ Socket, Type, Error ] ),
+            { noreply, State }
+    end;
 
 %%--------------------------------------------------------------------
 %% @private
