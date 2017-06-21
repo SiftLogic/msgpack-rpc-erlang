@@ -13,7 +13,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 %% API
--export([start_link/0]).
+-export( [ start_link/1 ] ).
 
 %% gen_server callbacks
 -export([init/1,
@@ -36,18 +36,14 @@
   dump/0
   ]).
 
--import( lists, [ filter/2 ] ).
-
--define(SERVER, ?MODULE).
+-import( lists, [ filter/2, map/2 ] ).
 
 %%%===================================================================
-%%% DEBUGGING UTILS: ought to move to common
+%%% DEBUGGING UTILS: 
 %%%===================================================================
 
 debug( Fmt, Args ) -> error_logger:info_msg( Fmt, Args ).
 debug( Msg ) -> error_logger:info_msg( Msg ).
-
--record(state, {connections :: list()}).
 
 dump() ->
   gen_server:call(?MODULE, dump).
@@ -184,14 +180,22 @@ get_connections(IPAddress) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
--spec(start_link() ->
-  {ok, Pid :: pid()} | ignore | {error, Reason :: term()}).
-start_link() ->
-  gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+-spec start_link( Listeners::[ term() ] ) -> { ok, Pid :: pid() } | ignore | { error, Reason :: term() }.
+
+start_link( ListenerSpecs ) ->
+  gen_server:start_link( { local, ?MODULE }, ?MODULE, [ ListenerSpecs ], [] ).
+
 
 %%%===================================================================
-%%% gen_server callbacks
+%%%
+%%% Initialization
+%%%
 %%%===================================================================
+
+-define( NUM_ACCEPTORS, 5 ).
+
+-record( state, { listeners::list(), connections :: list() } ).
+
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
@@ -200,8 +204,20 @@ start_link() ->
 %% @spec init(Args) -> {ok, State}
 %% @end
 %%--------------------------------------------------------------------
--spec(init(Args :: term()) -> {ok, State :: #state{}}).
-init([]) -> {ok, #state{connections = []}}.
+-spec( init( Args :: term() ) -> { ok, State :: #state{} } ).
+
+init( ListenerSpecs ) ->
+    debug( "Starting msgpack_rpc_connection_mgr", [] ),
+    process_flag( trap_exit, true ),
+
+    self() ! { post_init, ListenerSpecs },
+
+    { ok, #state{ listeners = [], connections = [] } }.
+
+%%%===================================================================
+%%% gen_server callbacks
+%%%===================================================================
+
 
 %%--------------------------------------------------------------------
 %% @private
@@ -243,43 +259,46 @@ handle_call(stop, _From, State) ->
 %% Send an aysnyochronous (one way) call back to all the connections on a single client.
 handle_call({notify_all, IPAddress, Method, Argv}, _From, #state{connections = Connections} = State) ->
   AllOpenConnections = cull_connections(Connections),
-  HostConnections = get_hosts_connections(IPAddress, AllOpenConnections),
-  if
-    length(HostConnections) > 0 ->
+
+  case get_hosts_connections(IPAddress, AllOpenConnections) of
+    [] ->
+      {reply, {error, no_active_connections}, State#state{connections = AllOpenConnections}};
+
+    HostConnections ->
       Binary = msgpack:pack([?MP_TYPE_NOTIFY, Method, Argv]),
       lists:map(fun({Socket, Transport,_ClientIp}) -> Transport:send(Socket, Binary) end, HostConnections),
-      {reply, ok, State#state{connections = AllOpenConnections}};
-    true ->
-      {reply, {error, no_active_connections}, State#state{connections = AllOpenConnections}}
+      {reply, ok, State#state{connections = AllOpenConnections}}
   end;
 
 %% Send an aysnyochronous (one way) call back to all the connections in the system.
 handle_call({notify_global, Method, Argv}, _From, #state{connections = Connections} = State) ->
-  AllOpenConnections = cull_connections(Connections),
-  if
-    length(AllOpenConnections) > 0 ->
+  case cull_connections(Connections) of
+    [] ->
+      {reply, {error, no_active_connections}, State#state{connections = []}};
+
+    AllOpenConnections ->
       Binary = msgpack:pack([?MP_TYPE_NOTIFY, Method, Argv]),
       lists:map(fun({Socket, Transport,_ClientIp}) -> Transport:send(Socket, Binary) end, AllOpenConnections),
-      {reply, ok, State#state{connections = AllOpenConnections}};
-    true ->
-      {reply, {error, no_active_connections}, State#state{connections = AllOpenConnections}}
+      {reply, ok, State#state{connections = AllOpenConnections}}
   end;
 
 %% Send an aysnyochronous (one way) call back to a single connection on a client.
-%% This call assumes that there is only one connection from a single host the the port on the server.
-%% If there is more than one connection then this function picks the last one from the list.
-handle_call({notify_one_ip_port, IPAddress, Port, Method, Argv}, _From, #state{connections = Connections} = State) ->
+%% This call enforces that there is only one connection from a single host the the port on the server.
+
+handle_call({notify_one_ip_port, IPAddress, _Port, Method, Argv}, _From, #state{connections = Connections} = State) ->
   AllOpenConnections = cull_connections(Connections),
 
 %  case get_connections_on_ip_and_port(IPAddress, Port, Connections) of
   case get_connections_on_ip_only(IPAddress, Connections) of
     [] ->
       {reply, {error, no_active_connections}, State#state{connections = AllOpenConnections}};
-    FilteredConnections ->
-      {Socket, Transport, _ClientIp} = lists:last(FilteredConnections),
+
+    [ { Socket, Transport, _ClientIp } ] ->
+    %  {Socket, Transport, _ClientIp} = lists:last(FilteredConnections),
       Binary = msgpack:pack([?MP_TYPE_NOTIFY, Method, Argv]),
-      ok = Transport:send(Socket, Binary),
-      {reply, ok, State#state{connections = AllOpenConnections}}
+
+      Result = Transport:send(Socket, Binary),
+      {reply, Result, State#state{connections = AllOpenConnections}}
   end;
 
 %% Send an aysnyochronous (one way) call back to all connections on a specifc port to a specific ip.
@@ -287,10 +306,12 @@ handle_call({notify_all_ip_port, IPAddress, Port, Method, Argv}, _From, #state{c
   AllOpenConnections = cull_connections(Connections),
   Connections = get_connections_on_ip_and_port(IPAddress, Port, Connections),
   Binary = msgpack:pack([?MP_TYPE_NOTIFY, Method, Argv]),
+
   lists:foreach(
     fun({Socket, Transport, _ClientIp }) ->
-      ok = Transport:send(Socket, Binary)
+      _ = Transport:send(Socket, Binary)        %% Ignoring result since we don't use, and don't want crash
     end, Connections),
+
   {reply, ok, State#state{connections = AllOpenConnections}};
 
 %--------------------
@@ -356,11 +377,29 @@ handle_cast({delete, Socket, Transport}, #state{connections = Connections} = Sta
 %% @spec handle_info(Info, State) -> {noreply, State}
 %% @end
 %%--------------------------------------------------------------------
--spec(handle_info(Info :: timeout() | term(), State :: #state{}) ->
-  {noreply, NewState :: #state{}}).
+-spec(handle_info(Info :: timeout() | term(), State :: #state{}) -> {noreply, NewState :: #state{}}).
+
+handle_info( { post_init, ListenerSpecs }, State ) ->
+    debug( "Starting listeners ~p~n", [ ListenerSpecs ] ) ,
+    Listeners = map( fun start_listener/4, ListenerSpecs ),
+    { noreply, State#state{ listeners = Listeners } };
+
 handle_info(Info, State) ->
-  io:format("Unknown info \"~p\"~n", [Info]),
+  debug( "Unknown info \"~p\"~n", [Info]),
   {noreply, State}.
+
+
+start_listener( Name, ApiModule, TransportHandler, Options ) ->
+    { ok, _ServerPid } = msgpack_rpc_server:start(
+                                                Name,               %The name of the listener.
+                                                ?NUM_ACCEPTORS,     %The number of acceptors.
+                                                TransportHandler,   %The transport handler; tcp or ssl.
+                                                ApiModule,          %The name of the module with the API.
+                                                Options             %The list of ranch options.
+                                            ),
+    Name.
+
+
 
 %%--------------------------------------------------------------------
 %% @private
@@ -404,7 +443,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 cull_connections(Connections) ->
     Kept = filter(
-            fun( { Socket, Transport, ClientIp } ) ->
+            fun( { Socket, Transport, _ClientIp } ) ->
                 case erlang:port_info( erlang_port( Socket, Transport ) ) of
                     undefined -> false;
                     _ -> true
@@ -428,7 +467,7 @@ cull_connections(Connections) ->
 %%--------------------------------------------------------------------
 get_hosts_connections(IPAddress, AllOpenConnections) ->
   filter(
-    fun( { Socket, Transport, ClientIp } ) ->
+    fun( { Socket, Transport, _ClientIp } ) ->
       case inet:peername( erlang_port( Socket, Transport ) ) of
         { ok, { IPAddress, _ } } -> true;
         _ -> false
@@ -442,7 +481,7 @@ get_hosts_connections(IPAddress, AllOpenConnections) ->
 %% @end
 %%--------------------------------------------------------------------
 get_connections_on_ip_only( IP, Connections ) ->
-    F = fun( { Socket, Transport, ClientIp } ) ->
+    F = fun( { Socket, Transport, _ClientIp } ) ->
             case inet:peername( erlang_port( Socket, Transport ) ) of
                 { ok, { IP, _ } } -> true;
                 _ -> false
@@ -457,7 +496,7 @@ get_connections_on_ip_only( IP, Connections ) ->
 %% @end
 %%--------------------------------------------------------------------
 get_connections_on_ip_and_port( IP, Port, Connections ) ->
-    F = fun( { Socket, Transport, ClientIp } ) ->
+    F = fun( { Socket, Transport, _ClientIp } ) ->
             case inet:peername( erlang_port( Socket, Transport ) ) of
                 { ok, { IP, Port } } -> true;
                 _ -> false
@@ -467,10 +506,10 @@ get_connections_on_ip_and_port( IP, Port, Connections ) ->
 
 %%  TODO: wrong to match on tuple, use proper record
 
-erlang_port( { sslsocket, { gen_tcp, SSLSocket, tls_connection, _ }, _ } = Socket, Transport=ranch_ssl ) ->
+erlang_port( { sslsocket, { gen_tcp, SSLSocket, tls_connection, _ }, _ }, ranch_ssl ) ->
     SSLSocket;
 
-erlang_port( Socket, Transport=ranch_tcp ) ->
+erlang_port( Socket, ranch_tcp ) ->
     Socket.
 
 erlang_port( { sslsocket, { gen_tcp, SSLSocket, tls_connection, _ }, _ } ) ->
@@ -480,25 +519,6 @@ erlang_port( Socket ) ->
     Socket.
 
 
-old_get_connections_on_ip_and_port(IPAddress, Port, Connections) ->
-  get_connections_on_port(
-    get_hosts_connections(IPAddress,
-      cull_connections(Connections)), Port).
-
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Returns a list of connections on a single port
-%% @end
-%%--------------------------------------------------------------------
-get_connections_on_port(Connections, Port) ->
-  filter(
-    fun({Socket, Transport, ClientIp}) ->
-      case inet:port( erlang_port( Socket, Transport ) ) of
-        {ok, Port} -> true;
-        _ -> false
-      end
-    end, Connections).
 
 %%--------------------------------------------------------------------
 %% @private
@@ -508,9 +528,8 @@ get_connections_on_port(Connections, Port) ->
 %%--------------------------------------------------------------------
 
 ip_from_socket( Socket ) -> inet:peername( erlang_port( Socket ) ).
-port_from_socket( Socket ) -> inet:port( erlang_port( Socket ) ).
 
-ip_string( Socket, Transport ) ->
+ip_string( Socket, _Transport ) ->
     case ip_from_socket( Socket ) of
         { ok, { Address, Port } } ->
             inet:ntoa( Address );

@@ -54,7 +54,11 @@ notify_all_connections_on_host_port(IPAddress, Port, Method, Argv) ->
   BinArgv = lists:map(fun(X) -> term_to_binary(X) end, Argv),
 
   Result = msgpack_rpc_connection_mgr:notify_all_connections_on_host_port(IPAddress, Port, Method, BinArgv),
-  if
+
+%   TODO: This test can not work, as msgpack_rpc_connection_mgr:handle_call({notify_all_ip_port,
+%         only ever returns ok
+
+   if
     Result =:= no_active_connections ->
       throw({no_active_connections, "There are no active connections to this host."});
     true ->
@@ -80,6 +84,9 @@ notify_one_connection_on_host(IPAddress, Port, Method, Argv) ->
   BinArgv = lists:map(fun(X) -> term_to_binary(X) end, Argv),
 
   Result = msgpack_rpc_connection_mgr:notify_one_connection_on_host(IPAddress, Port, Method, BinArgv),
+%   TODO: This test can not work, as msgpack_rpc_connection_mgr:handle_call({notify_one_ip_port,
+%         only ever returns ok
+
   if
     Result =:= no_active_connections ->
       throw({no_active_connections, "There are no active connections to this host."});
