@@ -183,7 +183,8 @@ get_connections(IPAddress) ->
 -spec start_link( Listeners::[ term() ] ) -> { ok, Pid :: pid() } | ignore | { error, Reason :: term() }.
 
 start_link( ListenerSpecs ) ->
-  gen_server:start_link( { local, ?MODULE }, ?MODULE, [ ListenerSpecs ], [] ).
+    debug( "mgr:startlink: specs are ~p~n", [ ListenerSpecs ] ),
+    gen_server:start_link( { local, ?MODULE }, ?MODULE, [ ListenerSpecs ], [] ).
 
 
 %%%===================================================================
@@ -207,7 +208,7 @@ start_link( ListenerSpecs ) ->
 -spec( init( Args :: term() ) -> { ok, State :: #state{} } ).
 
 init( ListenerSpecs ) ->
-    debug( "Starting msgpack_rpc_connection_mgr", [] ),
+    debug( "Starting msgpack_rpc_connection_mgr, specs are ~p~n", [ ListenerSpecs ] ),
     process_flag( trap_exit, true ),
 
     self() ! { post_init, ListenerSpecs },
