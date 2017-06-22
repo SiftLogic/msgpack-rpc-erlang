@@ -383,7 +383,7 @@ handle_cast({delete, Socket, Transport}, #state{connections = Connections} = Sta
 handle_info( { post_init, ListenerSpecs }, State ) ->
     debug( "Starting listeners ~p~n", [ ListenerSpecs ] ) ,
 %    Listeners = map( fun start_listener/4, ListenerSpecs ),
-    Listeners = [ start_listener( N, A, T, O ) || { N, A, T, O } <- ListenerSpecs ] ),
+    Listeners = [ start_listener( N, A, T, O ) || { N, A, T, O } <- ListenerSpecs ],
     { noreply, State#state{ listeners = Listeners } };
 
 handle_info(Info, State) ->
