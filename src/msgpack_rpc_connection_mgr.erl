@@ -382,8 +382,7 @@ handle_cast({delete, Socket, Transport}, #state{connections = Connections} = Sta
 
 handle_info( { post_init, ListenerSpecs }, State ) ->
     debug( "Starting listeners ~p~n", [ ListenerSpecs ] ) ,
-%    Listeners = map( fun start_listener/4, ListenerSpecs ),
-    Listeners = [ start_listener( N, A, T, O ) || { N, A, T, O } <- ListenerSpecs ],
+    Listeners = map( fun start_listener/4, ListenerSpecs ),
     { noreply, State#state{ listeners = Listeners } };
 
 handle_info(Info, State) ->
@@ -391,7 +390,7 @@ handle_info(Info, State) ->
   {noreply, State}.
 
 
-start_listener( Name, ApiModule, TransportHandler, Options ) ->
+start_listener( { Name, ApiModule, TransportHandler, Options } ) ->
     { ok, _ServerPid } = msgpack_rpc_server:start(
                                                 Name,               %The name of the listener.
                                                 ?NUM_ACCEPTORS,     %The number of acceptors.
