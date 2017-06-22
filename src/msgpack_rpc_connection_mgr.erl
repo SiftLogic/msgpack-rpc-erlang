@@ -184,7 +184,7 @@ get_connections(IPAddress) ->
 
 start_link( ListenerSpecs ) ->
     debug( "mgr:startlink: specs are ~p~n", [ ListenerSpecs ] ),
-    gen_server:start_link( { local, ?MODULE }, ?MODULE, [ ListenerSpecs ], [] ).
+    gen_server:start_link( { local, ?MODULE }, ?MODULE, ListenerSpecs, [] ).
 
 
 %%%===================================================================
