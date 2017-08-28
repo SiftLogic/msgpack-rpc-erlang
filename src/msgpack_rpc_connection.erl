@@ -68,7 +68,7 @@ init(Argv) ->
     Module = proplists:get_value(module, Argv, undefined),
     case Module of
       undefined ->
-        error_logger:info_msg("~nInfo: No module is defined in msgpack_rpc_client:connect/4:Opts. Callbacks impossible.~n"),
+        %% error_logger:info_msg("~nInfo: No module is defined in msgpack_rpc_client:connect/4:Opts. Callbacks impossible.~n"),
         ok;
       _ -> ok
     end,
